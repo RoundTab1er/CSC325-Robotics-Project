@@ -15,7 +15,6 @@ class ImageStreamConverter:
     intermediate OpenCV image manipulation, through the cv_image_listener
     initializer parameter.
     """
-
     def __init__(self,
                  cv_image_listener,
                  pub_topic="/sticky_wickets/object/image", # NOTE: This is a topic is only for testing
@@ -65,7 +64,6 @@ class ObjectDetector:
     Image stream by initializing an ImageStreamConverter instance
     which converts ROS to OpenCV.
     """
-
     def __init__(self):
         self.cv_converter = ImageStreamConverter(self.detect_objects)
         self.object_pub = rospy.Publisher("/sticky_wickets/object_data", String)
@@ -78,10 +76,9 @@ class ObjectDetector:
         squares = self.process_squares(cv_image)
         #circles = self.process_circles(cv_image)
 
-        # process detected shapes' colors here...
-        # size detect here...
+        squares = self.analyze_shape_colors(squares, cv_image)
 
-        # publish custom topic - bounding rectangles (string message type)
+        # Publish custom topic - bounding rectangles (string message type)
         pub_shapes = str({ "square": squares }) # "circle": circles, "tri": triangles!
         self.object_pub.publish(pub_shapes)
 
@@ -127,6 +124,15 @@ class ObjectDetector:
             cv2.circle(cv_image,(i[0],i[1]),i[2],(0,255,0),2)
             cv2.circle(cv_image,(i[0],i[1]),2,(0,0,255),3)
 
+    def analyze_shape_colors(self, bounding_rects, cv_image):
+        """
+        Analyzes colors within the bounding box of given detected
+        shapes. If any shape's colors are incorrect, it will remove
+        them from the returned list of shapes.
+        """
+        # Unimplemented
+        return bounding_rects
+
 def main(args):
     detector = ObjectDetector()
     rospy.init_node('object_detect', anonymous=True)
@@ -135,7 +141,6 @@ def main(args):
         rospy.spin()
     except KeyboardInterrupt:
         print("Shutting down")
-    cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
