@@ -5,6 +5,7 @@ import rospy
 import cv2
 import numpy as np
 from sensor_msgs.msg import Image
+from std_msgs.msg import String
 from cv_bridge import CvBridge, CvBridgeError
 
 class ImageStreamConverter:
@@ -14,10 +15,9 @@ class ImageStreamConverter:
     intermediate OpenCV image manipulation, through the cv_image_listener
     initializer parameter.
     """
-
     def __init__(self,
                  cv_image_listener,
-                 pub_topic="object_core_image",
+                 pub_topic="/sticky_wickets/object/image", # NOTE: This is a topic is only for testing
                  sub_topic="camera/rgb/image_raw"):
         self.image_sub = rospy.Subscriber(sub_topic, Image, self.img_callback)
         self.image_pub = rospy.Publisher(pub_topic, Image)
@@ -33,12 +33,11 @@ class ImageStreamConverter:
         cv_img = self.convert_rosimage(ros_img)
 
         if cv_img is not None:
-            # Call listener with CV data
             cv_img = self.image_listener(cv_img)
-
-            # Republish to ROS
             ros_img = self.convert_cvimage(cv_img)
-            self.image_pub.publish(ros_img)
+
+            if ros_img is not None:
+                self.image_pub.publish(ros_img)
 
     def convert_cvimage(self, cv_image):
         """Converts OpenCV image to ROS"""
@@ -46,6 +45,7 @@ class ImageStreamConverter:
             return self.bridge.cv2_to_imgmsg(cv_image, "bgr8")
         except CvBridgeError as e:
             print("ERROR: Could not convert open_cv image. ", e)
+            return None
 
     def convert_rosimage(self, ros_image):
         """Converts ROS image to OpenCV"""
@@ -64,36 +64,30 @@ class ObjectDetector:
     Image stream by initializing an ImageStreamConverter instance
     which converts ROS to OpenCV.
     """
-
     def __init__(self):
         self.cv_converter = ImageStreamConverter(self.detect_objects)
-        # crap
-        image_sub = rospy.Subscriber("/camera/depth/image_raw", Image, self.clbk)
-        self.centroid = None
-        self.bridge = CvBridge()
-
+        self.object_pub = rospy.Publisher("/sticky_wickets/object_data", String)
 
     def detect_objects(self, cv_image):
         """
         ImageStreamConverter listener callback.
         Processes CV image, looking for various objects.
         """
-
-        # process shapes here...
         squares = self.process_squares(cv_image)
         #circles = self.process_circles(cv_image)
 
-        # process detected shapes' colors here...
+        squares = self.analyze_shape_colors(squares, cv_image)
 
-        # size detect here...
-
-        # publish custom topic - bounding rectangle
-        pub_shapes = { "square": squares, "circle": circles } # + triangles!
-        #rospy.Publisher("shapes", AType)
+        # Publish custom topic - bounding rectangles (string message type)
+        pub_shapes = str({ "square": squares }) # "circle": circles, "tri": triangles!
+        self.object_pub.publish(pub_shapes)
 
         return cv_image
 
     def process_squares(self, cv_image):
+        """
+        Detects rectangular objects in CV Image
+        """
         cv_img_grey = cv2.cvtColor(cv_image, cv2.COLOR_RGB2GRAY)
 
         ret, thresh = cv2.threshold(cv_img_grey, 127, 255, 1)
@@ -107,27 +101,18 @@ class ObjectDetector:
             approx = cv2.approxPolyDP(cnt,epsilon_approx*cv2.arcLength(cnt,True),True)
             if len(approx) == 4:
                 (x, y, w, h) = cv2.boundingRect(approx)
-                if w > min_size and h > min_size:
+                if w > min_size and h > min_size and w < 300:
                     cv2.rectangle(cv_image, (x,y),(x+w,y+h), (200,0,40), 2)
                     detected_objs.append((x, y, w, h))
-                    # crap
-                    self.centroid = (x, y)
 
         return detected_objs
 
-
-    def clbk(self, depth_img):
-        # crap
-        depth_image = self.bridge.imgmsg_to_cv2(depth_img, '32FC1')
-        depth_array = np.array(depth_image, dtype=np.float32)
-        print("centroid: ", self.centroid[0], self.centroid[1])
-        print(depth_array[self.centroid[0], self.centroid[1]] / 1000.0)
-
-
     def process_circles(self, cv_image):
+        """
+        Detects circles objects in CV Image
+        """
         cv_img_grey = cv2.cvtColor(cv_image, cv2.COLOR_RGB2GRAY)
-
-        cv_img_grey = cv2.medianBlur(cv_img_grey,5)
+        cv_img_grey = cv2.medianBlur(cv_img_grey, 5)
 
         circles = cv2.HoughCircles(cv_img_grey, cv2.HOUGH_GRADIENT, 1, 20,
                                    param1=200,
@@ -139,6 +124,15 @@ class ObjectDetector:
             cv2.circle(cv_image,(i[0],i[1]),i[2],(0,255,0),2)
             cv2.circle(cv_image,(i[0],i[1]),2,(0,0,255),3)
 
+    def analyze_shape_colors(self, bounding_rects, cv_image):
+        """
+        Analyzes colors within the bounding box of given detected
+        shapes. If any shape's colors are incorrect, it will remove
+        them from the returned list of shapes.
+        """
+        # Unimplemented
+        return bounding_rects
+
 def main(args):
     detector = ObjectDetector()
     rospy.init_node('object_detect', anonymous=True)
@@ -147,7 +141,6 @@ def main(args):
         rospy.spin()
     except KeyboardInterrupt:
         print("Shutting down")
-    cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
