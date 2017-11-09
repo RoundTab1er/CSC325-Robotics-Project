@@ -5,7 +5,9 @@ import math
 import rospy
 import cv2
 import numpy as np
+import tf
 from move_base_msgs.msg import MoveBaseGoal
+from geometry_msgs.msg import TransformStamped, Pose, Point, Quaternion
 from std_msgs.msg import String
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
@@ -53,6 +55,7 @@ class SignHandler:
         """
         react_dist = 0.7
 
+        #WHAT HAPPENS IF WE DRIVE AWAY AND CAN'T SEE THE REST OF THESE ANYMORE? OUR HANDLING OF MULTIPLE SIGNS SEEMS LACKING???
         for num_sides, shapes in shapes_dict.items():
             for (x, y, w, h) in shapes:
                 shape_object = (x, y, w, h)
@@ -83,11 +86,11 @@ class SignHandler:
         """
         Calculates the centroid of a detected shapes
         """
-        #currently can get out of bounds error...by a lot (like 100px out of bounds - 580 instead of 480 max)
+        #currently can get out of bounds error...by a lot (like 100px out of bounds - 580 instead of 480 max --> maybe flipped axis somewhere??)
         (x, y, w, h) = sign_object
 
         centroid_x = x + (w/2)
-        centroid_y = y + (h/2)
+        centroid_y = y - (h/2)
 
         centroid = (centroid_x, centroid_y)
 
@@ -149,6 +152,25 @@ class SignHandler:
 
         return toVal
 
+    def get_sign_pose(self, centroid, depth):
+        point = tf.Vector3(centroid[0], centroid[1], depth)
+
+        listener = tf.TransformListener()
+        transform = tf.StampedTransform()
+
+        #time goes here??
+        source_frame = #camera!
+
+        try:
+            listener.waitForTransform("/map", source_frame, time, rospy.Duration(3.0))
+            new_transform = listener.lookupTransform('/map', source_frame, rospy.Time(0), transform)
+        except Exception as e:
+            print "Camera to base transfrom unavailable"
+
+        new_point = point * new_transform
+
+        return new_point
+
     def get_pose(self):
          (curr_pos,_) = self.listener.lookupTransform('/map', '/base_link', rospy.Time(0))
 
@@ -190,6 +212,9 @@ class SignHandler:
         #generates black image of equal size to gmapping map
         blank_map = np.zeros((self.map_data.info.height, self.map_data.info.width, 3), np.uint8)
 
+        # IF WE WANT WHITE MAP
+        #blank_map.fill(255) 
+
         return blank_map
 
     def should_add_to_map(self, location, shape):
@@ -228,7 +253,7 @@ def main(args):
         rospy.spin()
     except KeyboardInterrupt:
         print("Shutting down")
-
+        
 
 if __name__ == '__main__':
     main(sys.argv)
